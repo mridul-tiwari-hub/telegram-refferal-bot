@@ -119,7 +119,10 @@ async def handle_status(message: Message, session: AsyncSession) -> None:
 
     # If in group, use current group; if in private, find group
     if message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        group = await group_repo.get_by_telegram_id(message.chat.id)
+        group = await group_repo.get_or_create_group(
+            telegram_group_id=message.chat.id,
+            group_name=message.chat.title or "Group"
+        )
     else:
         from sqlalchemy import select, desc
         from database.models.referral_requirement import ReferralRequirement

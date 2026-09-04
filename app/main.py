@@ -53,7 +53,22 @@ async def main() -> None:
     deadline_worker = DeadlineWorker(bot=bot)
     deadline_worker.start()
 
-    # 8. Test bot connection and log identity
+    # 8. Start HTTP health check server for Render (Binds to 0.0.0.0:$PORT)
+    import os
+    from aiohttp import web
+    health_app = web.Application()
+    async def health_check(request):
+        return web.Response(text="Telegram Referral Bot is Live & Running 24/7!", status=200)
+    health_app.router.add_get("/", health_check)
+    health_app.router.add_get("/health", health_check)
+    runner = web.AppRunner(health_app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Render HTTP health check server running on 0.0.0.0:{port}")
+
+    # 9. Test bot connection and log identity
     bot_user = await bot.get_me()
     logger.info(f"Bot connected successfully as @{bot_user.username} (ID: {bot_user.id})")
 
