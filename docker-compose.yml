@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: telegram_bot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: telegram_referral_bot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d telegram_referral_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: telegram_bot_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram_referral_bot
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN:-8290140755:AAH8kBCR2uoc0E3dex1arF794Ax7kG4GzYU}
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/telegram_referral_bot
+      - REDIS_URL=redis://redis:6379/0
+      - ADMIN_LOG_CHAT_ID=${ADMIN_LOG_CHAT_ID:-}
+      - DEADLINE_CHECK_INTERVAL_SECONDS=${DEADLINE_CHECK_INTERVAL_SECONDS:-60}
+      - DEFAULT_REFERRAL_DEADLINE_HOURS=${DEFAULT_REFERRAL_DEADLINE_HOURS:-24}
+      - DEFAULT_REQUIRED_REFERRALS=${DEFAULT_REQUIRED_REFERRALS:-1}
+      - DEFAULT_FAILURE_ACTION=${DEFAULT_FAILURE_ACTION:-RESTRICT}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
