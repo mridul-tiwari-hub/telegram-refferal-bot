@@ -77,6 +77,18 @@ async def handle_start(message: Message, session: AsyncSession) -> None:
     link = await invite_service.get_or_create_referral_link(user, group)
     req = await referral_repo.get_requirement(user.id, group.id)
 
+    # If requirement doesn't exist yet, auto-create it with group settings
+    settings = await group_repo.get_settings(group.id)
+    if not req and settings.referral_enabled:
+        from datetime import datetime, timedelta, timezone
+        deadline = datetime.now(timezone.utc) + timedelta(hours=settings.referral_deadline_hours)
+        req = await referral_repo.create_requirement(
+            user_id=user.id,
+            group_id=group.id,
+            deadline=deadline,
+            required_referrals=settings.required_referrals
+        )
+
     time_remaining_str = "No active deadline"
     status_str = req.status if req else "ACTIVE"
     progress_str = f"{req.completed_referrals} / {req.required_referrals}" if req else "0 / 1"
@@ -85,12 +97,13 @@ async def handle_start(message: Message, session: AsyncSession) -> None:
         time_remaining_str, _ = format_time_remaining(req.deadline)
 
     invite_url = link.telegram_invite_link if link else "Could not generate link"
+    link_display = f'<a href="{invite_url}">{invite_url}</a>' if invite_url.startswith("http") else invite_url
 
     text = (
         f"🎉 <b>Welcome!</b>\n\n"
         f"Welcome to the Referral Growth System for <b>{group.group_name}</b>.\n\n"
         f"🔗 <b>Your Personal Referral Link:</b>\n"
-        f"<code>{invite_url}</code>\n\n"
+        f"{link_display}\n\n"
         f"📊 <b>Your Progress:</b>\n"
         f"Successful Referrals: <b>{progress_str}</b>\n"
         f"Status: <b>{status_str}</b>\n\n"
@@ -99,7 +112,11 @@ async def handle_start(message: Message, session: AsyncSession) -> None:
         f"Share your personal link and successfully invite the required number of new members before your deadline."
     )
 
-    await message.answer(text, reply_markup=get_status_keyboard(group.id), parse_mode="HTML")
+    await message.answer(
+        text,
+        reply_markup=get_status_keyboard(group.id, invite_url=link.telegram_invite_link if link else None),
+        parse_mode="HTML"
+    )
 
 
 @referral_router.message(Command("status"))
@@ -150,6 +167,18 @@ async def handle_status(message: Message, session: AsyncSession) -> None:
     link = await invite_service.get_or_create_referral_link(user, group)
     req = await referral_repo.get_requirement(user.id, group.id)
 
+    # Auto-create requirement if missing and referral is enabled
+    settings = await group_repo.get_settings(group.id)
+    if not req and settings.referral_enabled:
+        from datetime import datetime, timedelta, timezone
+        deadline = datetime.now(timezone.utc) + timedelta(hours=settings.referral_deadline_hours)
+        req = await referral_repo.create_requirement(
+            user_id=user.id,
+            group_id=group.id,
+            deadline=deadline,
+            required_referrals=settings.required_referrals
+        )
+
     time_remaining_str = "No active deadline"
     status_str = req.status if req else "ACTIVE"
     progress_str = f"{req.completed_referrals} / {req.required_referrals}" if req else "0 / 1"
@@ -158,11 +187,12 @@ async def handle_status(message: Message, session: AsyncSession) -> None:
         time_remaining_str, _ = format_time_remaining(req.deadline)
 
     invite_url = link.telegram_invite_link if link else "Could not generate link"
+    link_display = f'<a href="{invite_url}">{invite_url}</a>' if invite_url.startswith("http") else invite_url
 
     text = (
         f"📊 <b>Referral Status</b>\n\n"
         f"🔗 <b>Your Personal Invite Link:</b>\n"
-        f"<code>{invite_url}</code>\n\n"
+        f"{link_display}\n\n"
         f"👥 <b>Successful Referrals:</b>\n"
         f"<b>{progress_str}</b>\n\n"
         f"📌 <b>Status:</b>\n"
@@ -171,7 +201,11 @@ async def handle_status(message: Message, session: AsyncSession) -> None:
         f"<b>{time_remaining_str}</b>"
     )
 
-    await message.answer(text, reply_markup=get_status_keyboard(group.id), parse_mode="HTML")
+    await message.answer(
+        text,
+        reply_markup=get_status_keyboard(group.id, invite_url=link.telegram_invite_link if link else None),
+        parse_mode="HTML"
+    )
 
 
 @referral_router.callback_query(F.data.startswith("user_refresh_status:"))
@@ -179,6 +213,7 @@ async def handle_refresh_status_callback(callback: CallbackQuery, session: Async
     """Refreshes status message with recalculated dynamic time."""
     group_id = int(callback.data.split(":")[1])
     user_repo = UserRepository(session)
+    group_repo = GroupRepository(session)
     referral_repo = ReferralRepository(session)
     invite_service = InviteLinkService(session, callback.bot)
 
@@ -196,6 +231,18 @@ async def handle_refresh_status_callback(callback: CallbackQuery, session: Async
     link = await invite_service.get_or_create_referral_link(user, group)
     req = await referral_repo.get_requirement(user.id, group.id)
 
+    # Auto-create requirement if missing and referral is enabled
+    settings = await group_repo.get_settings(group.id)
+    if not req and settings.referral_enabled:
+        from datetime import datetime, timedelta, timezone
+        deadline = datetime.now(timezone.utc) + timedelta(hours=settings.referral_deadline_hours)
+        req = await referral_repo.create_requirement(
+            user_id=user.id,
+            group_id=group.id,
+            deadline=deadline,
+            required_referrals=settings.required_referrals
+        )
+
     time_remaining_str = "No active deadline"
     status_str = req.status if req else "ACTIVE"
     progress_str = f"{req.completed_referrals} / {req.required_referrals}" if req else "0 / 1"
@@ -204,11 +251,12 @@ async def handle_refresh_status_callback(callback: CallbackQuery, session: Async
         time_remaining_str, _ = format_time_remaining(req.deadline)
 
     invite_url = link.telegram_invite_link if link else "Could not generate link"
+    link_display = f'<a href="{invite_url}">{invite_url}</a>' if invite_url.startswith("http") else invite_url
 
     text = (
         f"📊 <b>Referral Status</b>\n\n"
         f"🔗 <b>Your Personal Invite Link:</b>\n"
-        f"<code>{invite_url}</code>\n\n"
+        f"{link_display}\n\n"
         f"👥 <b>Successful Referrals:</b>\n"
         f"<b>{progress_str}</b>\n\n"
         f"📌 <b>Status:</b>\n"
@@ -218,7 +266,11 @@ async def handle_refresh_status_callback(callback: CallbackQuery, session: Async
     )
 
     try:
-        await callback.message.edit_text(text, reply_markup=get_status_keyboard(group.id), parse_mode="HTML")
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_status_keyboard(group.id, invite_url=link.telegram_invite_link if link else None),
+            parse_mode="HTML"
+        )
         await callback.answer("✅ Status refreshed!")
     except Exception:
         await callback.answer("Status is already up to date.")

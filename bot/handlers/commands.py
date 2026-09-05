@@ -135,7 +135,7 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
         f"• Progress: <b>{req.completed_referrals if req else 0}/{req.required_referrals if req else 0}</b>\n"
         f"• Exempt: <b>{req.is_exempt if req else False}</b>\n"
         f"• Time Remaining: <b>{profile['time_remaining']}</b>\n"
-        f"• Active Link: <code>{profile['invite_link']}</code>"
+        f"• Active Link: {f'<a href=\"{profile[\"invite_link\"]}\">{profile[\"invite_link\"]}</a>' if profile['invite_link'].startswith('http') else profile['invite_link']}"
     )
     await message.answer(text, parse_mode="HTML")
 

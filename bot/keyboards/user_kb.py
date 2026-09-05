@@ -3,14 +3,20 @@ from typing import Optional
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def get_status_keyboard(group_id: int) -> InlineKeyboardMarkup:
-    """Provides Refresh Status and Share Link buttons."""
-    keyboard = [
-        [
-            InlineKeyboardButton(text="🔄 Refresh Status", callback_data=f"user_refresh_status:{group_id}")
-        ]
-    ]
+def get_status_keyboard(group_id: int, invite_url: Optional[str] = None) -> InlineKeyboardMarkup:
+    """Provides Open Link, Share Link, and Refresh Status buttons."""
+    keyboard = []
+    if invite_url and invite_url.startswith("http"):
+        share_url = f"https://t.me/share/url?url={invite_url}&text=Join%20using%20my%20personal%20referral%20invite%20link!"
+        keyboard.append([
+            InlineKeyboardButton(text="🔗 Open / Join Link", url=invite_url),
+            InlineKeyboardButton(text="📤 Share Link", url=share_url)
+        ])
+    keyboard.append([
+        InlineKeyboardButton(text="🔄 Refresh Status", callback_data=f"user_refresh_status:{group_id}")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 
 def get_start_bot_keyboard(bot_username: str, group_id: int) -> InlineKeyboardMarkup:

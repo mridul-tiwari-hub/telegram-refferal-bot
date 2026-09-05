@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database.repositories.user_repo import UserRepository
 from database.repositories.group_repo import GroupRepository
 from services.referral_service import ReferralService
-from bot.keyboards.user_kb import get_start_bot_keyboard
+from bot.keyboards.user_kb import get_start_bot_keyboard, get_status_keyboard
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -98,14 +98,17 @@ async def on_user_join(event: ChatMemberUpdated, session: AsyncSession) -> None:
     # Attempt to private message the user directly (works only if user had previously started bot)
     if new_link:
         try:
+            link_url = new_link.telegram_invite_link
+            link_display = f'<a href="{link_url}">{link_url}</a>' if link_url.startswith("http") else link_url
             await event.bot.send_message(
                 chat_id=new_member.id,
                 text=(
                     f"🎉 <b>Welcome to {group.group_name}!</b>\n\n"
                     f"🔗 <b>Your Personal Referral Link:</b>\n"
-                    f"<code>{new_link.telegram_invite_link}</code>\n\n"
+                    f"{link_display}\n\n"
                     f"Share this link with your friends to complete your referral requirement."
                 ),
+                reply_markup=get_status_keyboard(group.id, invite_url=link_url),
                 parse_mode="HTML"
             )
         except Exception:
