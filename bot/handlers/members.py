@@ -53,47 +53,76 @@ async def on_user_join(event: ChatMemberUpdated, session: AsyncSession) -> None:
         invite_link_str = event.invite_link.invite_link
         logger.info(f"Join invite link detected: {invite_link_str}")
 
-    # Process referral attribution, create link and requirement
+    # 1. Anti-raid check
+    from services.raid_service import RaidService
+    raid_service = RaidService(session, event.bot)
+    is_raid, join_count = await raid_service.record_join_and_check_raid(group)
+
+    # 2. Process referral attribution, create link and requirement (preserved 100%)
     req, new_link, referrer = await ref_service.handle_new_member_join(
         group=group,
         new_user=user,
         telegram_invite_link_str=invite_link_str
     )
 
-    # Send Welcome Message in group with fallback button
-    bot_info = await event.bot.get_me()
-    welcome_template = group_settings.welcome_message or "🎉 Welcome {first_name} to {group_name}!"
-    welcome_text = welcome_template.format(
-        first_name=user.first_name,
-        username=f"@{user.username}" if user.username else user.first_name,
-        group_name=group.group_name,
-        required_referrals=group_settings.required_referrals,
-        deadline_hours=group_settings.referral_deadline_hours
-    )
+    # 3. If raid mode active, restrict user immediately
+    if group_settings.raid_mode or is_raid:
+        try:
+            from aiogram.types import ChatPermissions
+            await event.bot.restrict_chat_member(
+                chat_id=chat.id,
+                user_id=new_member.id,
+                permissions=ChatPermissions(can_send_messages=False)
+            )
+            logger.info(f"User {new_member.id} restricted due to active raid mode in {chat.id}")
+        except Exception as e:
+            logger.debug(f"Failed to restrict user during raid: {e}")
+        return
 
-    # Mention referrer if attributed
-    if referrer:
-        ref_name = f"@{referrer.username}" if referrer.username else referrer.first_name
-        welcome_text += f"\n\n👤 Referred by: <b>{ref_name}</b>"
+    # 4. If Captcha verification enabled, issue verification challenge
+    if group_settings.captcha_enabled:
+        from services.captcha_service import CaptchaService
+        captcha_service = CaptchaService(session, event.bot)
+        await captcha_service.prompt_captcha(group, user)
 
-    if group_settings.referral_enabled:
-        welcome_text += (
-            f"\n\n⚠️ <i>Requirement:</i> Invite <b>{group_settings.required_referrals}</b> member(s) "
-            f"within <b>{group_settings.referral_deadline_hours} hours</b> to stay in the group.\n"
-            f"Click the button below to get your personal referral link!"
+    # 5. Send Welcome Message in group if enabled
+    if group_settings.welcome_enabled:
+        bot_info = await event.bot.get_me()
+        welcome_template = group_settings.welcome_message or "🎉 Welcome {first_name} to {group_name}!"
+        welcome_text = welcome_template.format(
+            first_name=user.first_name,
+            last_name=user.last_name or "",
+            username=f"@{user.username}" if user.username else user.first_name,
+            user_id=user.telegram_user_id,
+            group_name=group.group_name,
+            group=group.group_name,
+            required_referrals=group_settings.required_referrals,
+            deadline_hours=group_settings.referral_deadline_hours
         )
 
-    reply_markup = get_start_bot_keyboard(bot_info.username, group.id)
+        # Mention referrer if attributed
+        if referrer:
+            ref_name = f"@{referrer.username}" if referrer.username else referrer.first_name
+            welcome_text += f"\n\n👤 Referred by: <b>{ref_name}</b>"
 
-    try:
-        await event.bot.send_message(
-            chat_id=chat.id,
-            text=welcome_text,
-            reply_markup=reply_markup,
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        logger.error(f"Failed to send welcome message: {e}")
+        if group_settings.referral_enabled:
+            welcome_text += (
+                f"\n\n⚠️ <i>Requirement:</i> Invite <b>{group_settings.required_referrals}</b> member(s) "
+                f"within <b>{group_settings.referral_deadline_hours} hours</b> to stay in the group.\n"
+                f"Click the button below to get your personal referral link!"
+            )
+
+        reply_markup = get_start_bot_keyboard(bot_info.username, group.id)
+
+        try:
+            await event.bot.send_message(
+                chat_id=chat.id,
+                text=welcome_text,
+                reply_markup=reply_markup,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send welcome message: {e}")
 
     # Attempt to private message the user directly (works only if user had previously started bot)
     if new_link:

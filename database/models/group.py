@@ -24,6 +24,7 @@ class Group(Base):
     invite_links = relationship("ReferralInviteLink", back_populates="group", cascade="all, delete-orphan")
     requirements = relationship("ReferralRequirement", back_populates="group", cascade="all, delete-orphan")
     warnings = relationship("Warning", back_populates="group", cascade="all, delete-orphan")
+    locks = relationship("GroupLock", back_populates="group", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Group id={self.id} tg_group_id={self.telegram_group_id} name={self.group_name}>"
