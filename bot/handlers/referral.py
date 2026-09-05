@@ -1,5 +1,5 @@
 """User Referral Dashboard and Status Handlers."""
-from typing import Optional
+from typing import Optional, Tuple
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
@@ -8,12 +8,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database.repositories.user_repo import UserRepository
 from database.repositories.group_repo import GroupRepository
 from database.repositories.referral_repo import ReferralRepository
+from database.models.referral_requirement import ReferralRequirement
 from services.invite_link_service import InviteLinkService
 from services.referral_service import ReferralService
 from bot.keyboards.user_kb import get_status_keyboard, get_tree_pagination_keyboard
 from utils.security import format_time_remaining
 
 referral_router = Router(name="referral_router")
+
+
+def get_status_and_timer_display(req: Optional[ReferralRequirement]) -> Tuple[str, str, str]:
+    """Returns (status_str, progress_str, time_remaining_str)."""
+    if not req:
+        return "ACTIVE", "0 / 1", "No active deadline"
+
+    progress_str = f"{req.completed_referrals} / {req.required_referrals}"
+
+    if req.status == "COMPLETED" or req.completed_referrals >= req.required_referrals:
+        status_str = "COMPLETED ✅"
+        time_remaining_str = "🎉 Completed! (Timer stopped — you are safe)"
+    elif req.status == "EXEMPT" or req.is_exempt:
+        status_str = "EXEMPT 🛡"
+        time_remaining_str = "🛡 Exempt (No timer)"
+    elif req.status == "FAILED":
+        status_str = "FAILED ❌"
+        time_remaining_str = "❌ Expired"
+    else:
+        status_str = "PENDING ⏳"
+        time_remaining_str, _ = format_time_remaining(req.deadline)
+
+    return status_str, progress_str, time_remaining_str
 
 
 @referral_router.message(CommandStart())
@@ -89,12 +113,7 @@ async def handle_start(message: Message, session: AsyncSession) -> None:
             required_referrals=settings.required_referrals
         )
 
-    time_remaining_str = "No active deadline"
-    status_str = req.status if req else "ACTIVE"
-    progress_str = f"{req.completed_referrals} / {req.required_referrals}" if req else "0 / 1"
-
-    if req:
-        time_remaining_str, _ = format_time_remaining(req.deadline)
+    status_str, progress_str, time_remaining_str = get_status_and_timer_display(req)
 
     invite_url = link.telegram_invite_link if link else "Could not generate link"
     link_display = f'<a href="{invite_url}">{invite_url}</a>' if invite_url.startswith("http") else invite_url
@@ -179,12 +198,7 @@ async def handle_status(message: Message, session: AsyncSession) -> None:
             required_referrals=settings.required_referrals
         )
 
-    time_remaining_str = "No active deadline"
-    status_str = req.status if req else "ACTIVE"
-    progress_str = f"{req.completed_referrals} / {req.required_referrals}" if req else "0 / 1"
-
-    if req:
-        time_remaining_str, _ = format_time_remaining(req.deadline)
+    status_str, progress_str, time_remaining_str = get_status_and_timer_display(req)
 
     invite_url = link.telegram_invite_link if link else "Could not generate link"
     link_display = f'<a href="{invite_url}">{invite_url}</a>' if invite_url.startswith("http") else invite_url
@@ -243,12 +257,7 @@ async def handle_refresh_status_callback(callback: CallbackQuery, session: Async
             required_referrals=settings.required_referrals
         )
 
-    time_remaining_str = "No active deadline"
-    status_str = req.status if req else "ACTIVE"
-    progress_str = f"{req.completed_referrals} / {req.required_referrals}" if req else "0 / 1"
-
-    if req:
-        time_remaining_str, _ = format_time_remaining(req.deadline)
+    status_str, progress_str, time_remaining_str = get_status_and_timer_display(req)
 
     invite_url = link.telegram_invite_link if link else "Could not generate link"
     link_display = f'<a href="{invite_url}">{invite_url}</a>' if invite_url.startswith("http") else invite_url
