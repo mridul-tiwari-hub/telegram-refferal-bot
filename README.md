@@ -169,7 +169,7 @@ telegram-referral-bot/
 
 1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
 2. Send `/newbot` and follow the instructions to choose a name and username.
-3. BotFather will provide an **API Token** (e.g. `8290140755:AAH8kBCR2uoc0E3dex1arF794Ax7kG4GzYU`).
+3. BotFather will provide an **API Token** (e.g. `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`).
 4. In @BotFather settings for your bot:
    - Go to **Bot Settings** -> **Group Privacy** -> **Turn OFF** (allows the bot to see messages in groups for anti-spam).
    - Go to **Bot Settings** -> **Allow Groups?** -> **Turn ON**.
@@ -192,7 +192,7 @@ Create `.env` file in the root directory:
 
 ```env
 # Telegram Bot Token from @BotFather
-BOT_TOKEN=8290140755:AAH8kBCR2uoc0E3dex1arF794Ax7kG4GzYU
+BOT_TOKEN=your_bot_token_here
 
 # Environment: production or development
 ENVIRONMENT=production

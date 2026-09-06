@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     # Bot credentials
-    BOT_TOKEN: str = Field(default="8290140755:AAH8kBCR2uoc0E3dex1arF794Ax7kG4GzYU")
+    BOT_TOKEN: str = Field(default="", description="Telegram Bot Token from @BotFather")
     ENVIRONMENT: Literal["development", "production", "test"] = "production"
 
     # Database

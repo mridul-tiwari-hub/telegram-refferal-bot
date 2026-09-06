@@ -38,7 +38,7 @@ services:
     container_name: telegram_referral_bot
     restart: unless-stopped
     environment:
-      - BOT_TOKEN=${BOT_TOKEN:-8290140755:AAH8kBCR2uoc0E3dex1arF794Ax7kG4GzYU}
+      - BOT_TOKEN=${BOT_TOKEN}
       - ENVIRONMENT=production
       - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/telegram_referral_bot
       - REDIS_URL=redis://redis:6379/0
