@@ -41,20 +41,36 @@ class PermissionService:
         group_db_id: Optional[int] = None
     ) -> Tuple[UserRole, str]:
         """Determines the effective role and rank of a user in a Telegram chat."""
+        # 1. Telegram Anonymous Admin check (Telegram anonymous bot ID)
+        if user_id == 1087968824:
+            return UserRole.OWNER, "Owner"
+
+        # 2. Query Telegram get_chat_member
         try:
             member = await self.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-            if member.status == ChatMemberStatus.CREATOR:
+            if member.status in [ChatMemberStatus.CREATOR, "creator"]:
                 return UserRole.OWNER, "Owner"
-            if member.status == ChatMemberStatus.ADMINISTRATOR:
+            if member.status in [ChatMemberStatus.ADMINISTRATOR, "administrator"]:
                 return UserRole.ADMIN, "Administrator"
-            if member.status == ChatMemberStatus.RESTRICTED:
+            if member.status in [ChatMemberStatus.RESTRICTED, "restricted"]:
                 return UserRole.RESTRICTED, "Restricted Member"
-            if member.status == ChatMemberStatus.KICKED:
+            if member.status in [ChatMemberStatus.KICKED, "kicked"]:
                 return UserRole.BANNED, "Banned Member"
         except Exception as e:
             logger.debug(f"Could not fetch Telegram chat member {user_id} in {chat_id}: {e}")
 
-        # If not Telegram creator/admin, check if configured as bot staff
+        # 3. Fallback: Query chat administrators (failsafe if get_chat_member was throttled or restricted)
+        try:
+            admins = await self.bot.get_chat_administrators(chat_id=chat_id)
+            for adm in admins:
+                if adm.user.id == user_id:
+                    if adm.status in [ChatMemberStatus.CREATOR, "creator"]:
+                        return UserRole.OWNER, "Owner"
+                    return UserRole.ADMIN, "Administrator"
+        except Exception as e:
+            logger.debug(f"Could not fetch chat administrators for {chat_id}: {e}")
+
+        # 4. If not Telegram creator/admin, check if configured as bot staff
         if group_db_id:
             user_db = await self.user_repo.get_by_telegram_id(user_id)
             if user_db:

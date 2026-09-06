@@ -1,4 +1,4 @@
-"""General and Admin Commands Handlers."""
+import html
 from typing import Optional
 from aiogram import Router, F
 from aiogram.types import Message
@@ -113,15 +113,22 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
     target_tg_id: Optional[int] = None
     target_user: Optional[User] = None
 
-    if message.reply_to_message and message.reply_to_message.from_user:
-        replied = message.reply_to_message.from_user
-        target_tg_id = replied.id
-        target_user = await user_repo.get_or_create_user(
-            telegram_user_id=replied.id,
-            username=replied.username,
-            first_name=replied.first_name,
-            last_name=replied.last_name
-        )
+    if message.reply_to_message:
+        if message.reply_to_message.from_user:
+            replied = message.reply_to_message.from_user
+            if replied.is_bot:
+                await message.answer("ℹ️ Cannot view userinfo for bots. Please reply to a regular group member or provide their user ID.", parse_mode="HTML")
+                return
+            target_tg_id = replied.id
+            target_user = await user_repo.get_or_create_user(
+                telegram_user_id=replied.id,
+                username=replied.username,
+                first_name=replied.first_name or "",
+                last_name=replied.last_name
+            )
+        else:
+            await message.answer("ℹ️ Cannot resolve user from that message (sent by an anonymous sender or channel).", parse_mode="HTML")
+            return
     elif args:
         first = args[0].strip()
         if first.startswith("@"):
@@ -131,7 +138,7 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
                 target_tg_id = found_user.telegram_user_id
                 target_user = found_user
             else:
-                await message.answer(f"❌ User @{username} not found in database. They must send a message or interact in the group first.")
+                await message.answer(f"❌ User @{html.escape(username)} not found in database. They must send a message or interact in the group first.")
                 return
         else:
             try:
@@ -140,13 +147,16 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
                 await message.answer("Usage: <code>/userinfo [@username | USER_ID]</code> or reply to a message, or simply <code>/userinfo</code> for your own profile.", parse_mode="HTML")
                 return
     else:
-        # Defaults to the user running the command (e.g. Owner or member)
+        # Defaults to caller inspecting their own profile
         caller = message.from_user
+        if not caller:
+            await message.answer("Could not identify sender.")
+            return
         target_tg_id = caller.id
         target_user = await user_repo.get_or_create_user(
             telegram_user_id=caller.id,
             username=caller.username,
-            first_name=caller.first_name,
+            first_name=caller.first_name or "",
             last_name=caller.last_name
         )
 
@@ -161,7 +171,7 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
                     target_user = await user_repo.get_or_create_user(
                         telegram_user_id=u.id,
                         username=u.username,
-                        first_name=u.first_name,
+                        first_name=u.first_name or "",
                         last_name=u.last_name
                     )
             except Exception:
@@ -171,17 +181,24 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
         await message.answer("User record could not be found. Ensure the user is a member of this chat.")
         return
 
-    # If inspecting someone else, only Owner, Admins, or Staff are allowed
-    if target_tg_id != message.from_user.id:
+    # Permission check: Only Owner, Admins, or Staff can inspect other members
+    caller_id = message.from_user.id if message.from_user else 0
+    is_self = (target_tg_id == caller_id)
+    is_anon_admin = (
+        (message.sender_chat and message.sender_chat.id == message.chat.id) or
+        (caller_id == 1087968824)
+    )
+
+    if not is_self and not is_anon_admin:
         caller_role, caller_role_name = await perm_service.get_user_role_and_rank(
             chat_id=message.chat.id,
-            user_id=message.from_user.id,
+            user_id=caller_id,
             group_db_id=group.id
         )
         if caller_role < UserRole.STAFF:
             await message.answer(
-                "❌ <b>Access Denied</b>: Only Administrators and Owners can view other members' information. "
-                "You can only view your own profile by typing <code>/userinfo</code> without arguments.",
+                "❌ <b>Access Denied</b>: Only Administrators and Owners can view other members' information.\n"
+                "You can view your own profile by sending <code>/userinfo</code> without replying or arguments.",
                 parse_mode="HTML"
             )
             return
@@ -207,7 +224,7 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
     if role_enum == UserRole.STAFF:
         staff_rec = await admin_repo.get_staff(group.id, target_user.id)
         if staff_rec:
-            staff_info = f"\n• Staff Permissions: <code>{staff_rec.permissions}</code>"
+            staff_info = f"\n• Staff Permissions: <code>{html.escape(staff_rec.permissions)}</code>"
 
     profile = await member_service.get_member_profile(target_user.id, group.id)
     if not profile:
@@ -219,15 +236,22 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
     ref_name = f"@{referrer.username}" if referrer and referrer.username else (referrer.first_name if referrer else "None")
 
     inv_link = profile["invite_link"]
-    link_display = f'<a href="{inv_link}">{inv_link}</a>' if inv_link.startswith("http") else inv_link
+    if inv_link and inv_link.startswith("http"):
+        link_display = f'<a href="{html.escape(inv_link)}">{html.escape(inv_link)}</a>'
+    else:
+        link_display = html.escape(str(inv_link or "None"))
+
+    full_name = html.escape(f"{target_user.first_name} {target_user.last_name or ''}".strip())
+    safe_username = html.escape(f"@{target_user.username}") if target_user.username else "@None"
+    safe_ref = html.escape(str(ref_name))
 
     text = (
         f"👤 <b>USER INFORMATION</b>\n\n"
-        f"• Name: <b>{target_user.first_name} {target_user.last_name or ''}</b>\n"
+        f"• Name: <b>{full_name}</b>\n"
         f"• Telegram ID: <code>{target_user.telegram_user_id}</code>\n"
-        f"• Username: @{target_user.username or 'None'}\n"
+        f"• Username: {safe_username}\n"
         f"• Role: <b>{role_display}</b>{staff_info}\n"
-        f"• Referred By: <b>{ref_name}</b>\n"
+        f"• Referred By: <b>{safe_ref}</b>\n"
         f"• Direct Referrals: <b>{profile['referrals_count']}</b>\n"
         f"• Warnings: <b>{profile['warnings_count']}</b>\n"
         f"• Requirement Status: <b>{req.status if req else 'N/A'}</b>\n"
@@ -236,7 +260,12 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
         f"• Time Remaining: <b>{profile['time_remaining']}</b>\n"
         f"• Active Link: {link_display}"
     )
-    await message.answer(text, parse_mode="HTML")
+    try:
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Failed to send HTML userinfo: {e}")
+        plain = text.replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", "")
+        await message.answer(plain)
 
 
 @commands_router.message(Command("exempt"), IsAdminFilter())
