@@ -111,9 +111,17 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
 
     args = message.text.split()[1:]
     target_tg_id: Optional[int] = None
+    target_user: Optional[User] = None
 
     if message.reply_to_message and message.reply_to_message.from_user:
-        target_tg_id = message.reply_to_message.from_user.id
+        replied = message.reply_to_message.from_user
+        target_tg_id = replied.id
+        target_user = await user_repo.get_or_create_user(
+            telegram_user_id=replied.id,
+            username=replied.username,
+            first_name=replied.first_name,
+            last_name=replied.last_name
+        )
     elif args:
         first = args[0].strip()
         if first.startswith("@"):
@@ -121,8 +129,9 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
             found_user = await user_repo.get_by_username(username)
             if found_user:
                 target_tg_id = found_user.telegram_user_id
+                target_user = found_user
             else:
-                await message.answer(f"❌ User @{username} not found in database. They must interact in the group first.")
+                await message.answer(f"❌ User @{username} not found in database. They must send a message or interact in the group first.")
                 return
         else:
             try:
@@ -131,10 +140,36 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
                 await message.answer("Usage: <code>/userinfo [@username | USER_ID]</code> or reply to a message, or simply <code>/userinfo</code> for your own profile.", parse_mode="HTML")
                 return
     else:
-        # Defaults to the user running the command!
-        target_tg_id = message.from_user.id
+        # Defaults to the user running the command (e.g. Owner or member)
+        caller = message.from_user
+        target_tg_id = caller.id
+        target_user = await user_repo.get_or_create_user(
+            telegram_user_id=caller.id,
+            username=caller.username,
+            first_name=caller.first_name,
+            last_name=caller.last_name
+        )
 
-    target_user = await user_repo.get_or_create_user(telegram_user_id=target_tg_id)
+    # If numeric ID was passed and target_user is not yet resolved:
+    if not target_user and target_tg_id:
+        target_user = await user_repo.get_by_telegram_id(target_tg_id)
+        if not target_user:
+            try:
+                chat_member = await message.chat.get_member(target_tg_id)
+                if chat_member and chat_member.user:
+                    u = chat_member.user
+                    target_user = await user_repo.get_or_create_user(
+                        telegram_user_id=u.id,
+                        username=u.username,
+                        first_name=u.first_name,
+                        last_name=u.last_name
+                    )
+            except Exception:
+                pass
+
+    if not target_user:
+        await message.answer("User record could not be found. Ensure the user is a member of this chat.")
+        return
 
     # Determine user role and rank in this group
     role_enum, role_name = await perm_service.get_user_role_and_rank(

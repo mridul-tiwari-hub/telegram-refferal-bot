@@ -32,6 +32,14 @@ class MemberService:
 
         req = await self.referral_repo.get_requirement(user.id, group_id)
         link = await self.referral_repo.get_active_invite_link(user.id, group_id)
+        if not link:
+            group = await self.group_repo.get_by_id(group_id)
+            if group:
+                try:
+                    link = await self.invite_service.get_or_create_referral_link(user, group)
+                except Exception as e:
+                    logger.debug(f"Could not auto-create invite link: {e}")
+
         warnings_count = await self.mod_repo.get_warnings_count(group_id, user.id)
         referrer = await self.referral_repo.get_referrer(user.id, group_id)
         direct_referrals = await self.referral_repo.get_direct_referrals(user.id, group_id)

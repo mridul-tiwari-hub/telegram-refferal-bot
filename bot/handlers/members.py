@@ -1,7 +1,6 @@
-"""Member Join and Leave Event Handlers."""
 from typing import Optional
 from aiogram import Router, F
-from aiogram.types import ChatMemberUpdated
+from aiogram.types import ChatMemberUpdated, Message
 from aiogram.filters.chat_member_updated import ChatMemberUpdatedFilter, JOIN_TRANSITION, LEAVE_TRANSITION
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.repositories.user_repo import UserRepository
@@ -155,3 +154,49 @@ async def on_user_leave(event: ChatMemberUpdated, session: AsyncSession) -> None
     logger.info(f"User {user.id} left chat {event.chat.id}")
     user_repo = UserRepository(session)
     await user_repo.mark_left(user.id)
+
+
+@members_router.message(F.new_chat_members)
+async def on_new_chat_members_message(message: Message, session: AsyncSession) -> None:
+    """Fallback handler when Telegram sends new_chat_members service message."""
+    if not message.new_chat_members:
+        return
+
+    chat = message.chat
+    user_repo = UserRepository(session)
+    group_repo = GroupRepository(session)
+    ref_service = ReferralService(session, message.bot)
+
+    group = await group_repo.get_or_create_group(
+        telegram_group_id=chat.id,
+        group_name=chat.title or "Telegram Group"
+    )
+
+    for new_member in message.new_chat_members:
+        if new_member.is_bot:
+            continue
+
+        logger.info(f"User {new_member.id} ({new_member.full_name}) joined chat {chat.id} via new_chat_members")
+
+        user = await user_repo.get_or_create_user(
+            telegram_user_id=new_member.id,
+            username=new_member.username,
+            first_name=new_member.first_name,
+            last_name=new_member.last_name
+        )
+
+        await ref_service.handle_new_member_join(
+            group=group,
+            new_user=user,
+            telegram_invite_link_str=None
+        )
+
+
+@members_router.message(F.left_chat_member)
+async def on_left_chat_member_message(message: Message, session: AsyncSession) -> None:
+    """Fallback handler when Telegram sends left_chat_member service message."""
+    if not message.left_chat_member or message.left_chat_member.is_bot:
+        return
+
+    user_repo = UserRepository(session)
+    await user_repo.mark_left(message.left_chat_member.id)

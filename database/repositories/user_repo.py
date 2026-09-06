@@ -65,6 +65,16 @@ class UserRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_username(self, username: str) -> Optional[User]:
+        """Finds user by Telegram username (case-insensitive)."""
+        if not username:
+            return None
+        clean_username = username.lstrip("@").lower()
+        from sqlalchemy import func
+        stmt = select(User).where(func.lower(User.username) == clean_username)
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
     async def get_by_id(self, user_id: int) -> Optional[User]:
         """Finds user by primary key ID."""
         stmt = select(User).where(User.id == user_id)
