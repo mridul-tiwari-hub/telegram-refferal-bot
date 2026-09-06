@@ -123,6 +123,9 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
     referrer = profile["referrer"]
     ref_name = f"@{referrer.username}" if referrer and referrer.username else (referrer.first_name if referrer else "None")
 
+    inv_link = profile["invite_link"]
+    link_display = f'<a href="{inv_link}">{inv_link}</a>' if inv_link.startswith("http") else inv_link
+
     text = (
         f"👤 <b>USER INFORMATION</b>\n\n"
         f"• Name: <b>{target_user.first_name} {target_user.last_name or ''}</b>\n"
@@ -135,7 +138,7 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
         f"• Progress: <b>{req.completed_referrals if req else 0}/{req.required_referrals if req else 0}</b>\n"
         f"• Exempt: <b>{req.is_exempt if req else False}</b>\n"
         f"• Time Remaining: <b>{profile['time_remaining']}</b>\n"
-        f"• Active Link: {f'<a href=\"{profile[\"invite_link\"]}\">{profile[\"invite_link\"]}</a>' if profile['invite_link'].startswith('http') else profile['invite_link']}"
+        f"• Active Link: {link_display}"
     )
     await message.answer(text, parse_mode="HTML")
 

@@ -169,10 +169,8 @@ async def handle_list_staff(message: Message, session: AsyncSession) -> None:
     bot_staff = await admin_repo.list_staff(group.id)
     if bot_staff:
         lines.append("\n<b>Configured Bot Staff:</b>")
+        from database.models.user import User
         for st in bot_staff:
-            user = await session.get(user_repo.session.get.__self__.models.user.User if hasattr(user_repo.session, 'models') else type(group).invite_links.property.mapper.class, st.user_id) if hasattr(st, 'user_id') else None
-            # Fetch directly from DB session
-            from database.models.user import User
             user = await session.get(User, st.user_id)
             name = user.first_name if user else f"User {st.user_id}"
             lines.append(f"• {name} [<code>{user.telegram_user_id if user else st.user_id}</code>] — Permissions: <code>{st.permissions}</code>")
