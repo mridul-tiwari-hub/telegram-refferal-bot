@@ -30,9 +30,16 @@ async def main() -> None:
     # 3. Initialize Redis/Spam service
     await spam_service.init()
 
-    # 4. Instantiate Bot and Dispatcher
+    # 4. Validate Bot Token & Instantiate Bot and Dispatcher
+    if not settings.BOT_TOKEN or not settings.BOT_TOKEN.strip():
+        logger.critical("=" * 60)
+        logger.critical("CRITICAL: BOT_TOKEN is missing or empty!")
+        logger.critical("Please set the 'BOT_TOKEN' environment variable in your Render dashboard.")
+        logger.critical("=" * 60)
+        sys.exit(1)
+
     bot = Bot(
-        token=settings.BOT_TOKEN,
+        token=settings.BOT_TOKEN.strip(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp = Dispatcher()
