@@ -171,6 +171,21 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
         await message.answer("User record could not be found. Ensure the user is a member of this chat.")
         return
 
+    # If inspecting someone else, only Owner, Admins, or Staff are allowed
+    if target_tg_id != message.from_user.id:
+        caller_role, caller_role_name = await perm_service.get_user_role_and_rank(
+            chat_id=message.chat.id,
+            user_id=message.from_user.id,
+            group_db_id=group.id
+        )
+        if caller_role < UserRole.STAFF:
+            await message.answer(
+                "❌ <b>Access Denied</b>: Only Administrators and Owners can view other members' information. "
+                "You can only view your own profile by typing <code>/userinfo</code> without arguments.",
+                parse_mode="HTML"
+            )
+            return
+
     # Determine user role and rank in this group
     role_enum, role_name = await perm_service.get_user_role_and_rank(
         chat_id=message.chat.id,

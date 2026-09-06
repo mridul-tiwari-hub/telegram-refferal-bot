@@ -160,6 +160,38 @@ async def test_is_admin_filter_with_staff(db_session):
     assert res_reg is False
 
 
+@pytest.mark.asyncio
+async def test_userinfo_inspection_permissions(db_session):
+    group_repo = GroupRepository(db_session)
+    user_repo = UserRepository(db_session)
+    mock_bot = AsyncMock()
+
+    group = await group_repo.get_or_create_group(-100777, "Permission Group")
+    owner = await user_repo.get_or_create_user(telegram_user_id=7001, first_name="Owner")
+    member_a = await user_repo.get_or_create_user(telegram_user_id=7002, first_name="MemberA")
+    member_b = await user_repo.get_or_create_user(telegram_user_id=7003, first_name="MemberB")
+
+    perm_service = PermissionService(db_session, mock_bot)
+
+    # Mock member_a and member_b as regular MEMBER
+    mock_member = MagicMock()
+    from aiogram.enums import ChatMemberStatus
+    mock_member.status = ChatMemberStatus.MEMBER
+    mock_bot.get_chat_member.return_value = mock_member
+
+    # Regular member checking someone else: blocked because caller_role < STAFF
+    caller_role, _ = await perm_service.get_user_role_and_rank(-100777, member_a.telegram_user_id, group.id)
+    assert caller_role < UserRole.STAFF
+
+    # Owner checking someone else: allowed because owner_role >= STAFF
+    mock_owner = MagicMock()
+    mock_owner.status = ChatMemberStatus.CREATOR
+    mock_bot.get_chat_member.return_value = mock_owner
+    owner_role, _ = await perm_service.get_user_role_and_rank(-100777, owner.telegram_user_id, group.id)
+    assert owner_role >= UserRole.STAFF
+
+
+
 
 
 
