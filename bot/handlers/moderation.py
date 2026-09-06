@@ -24,8 +24,11 @@ async def handle_warn(message: Message, session: AsyncSession) -> None:
 
     if message.reply_to_message and message.reply_to_message.from_user:
         target_tg_id = message.reply_to_message.from_user.id
-        if len(args) > 1:
-            reason = " ".join(args[1:])
+        tokens = message.text.split()[1:]
+        if tokens and (tokens[0].startswith("@") or tokens[0].isdigit()):
+            tokens.pop(0)
+        if tokens:
+            reason = " ".join(tokens)
     elif len(args) > 1:
         try:
             target_tg_id = int(args[1])

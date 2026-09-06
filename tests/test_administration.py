@@ -13,6 +13,9 @@ from services.lock_service import LockService
 from services.activity_service import ActivityService
 
 
+from bot.handlers.moderation_extra import extract_duration_and_reason, resolve_target_user
+
+
 def test_parse_duration_string():
     assert parse_duration_string("10m") == 600
     assert parse_duration_string("2h") == 7200
@@ -21,6 +24,43 @@ def test_parse_duration_string():
     assert parse_duration_string("30s") == 30
     assert parse_duration_string("invalid") is None
     assert parse_duration_string("") is None
+
+
+def test_extract_duration_and_reason():
+    dur, reason = extract_duration_and_reason(["1m", "Spamming"])
+    assert dur == 60
+    assert reason == "Spamming"
+
+    dur, reason = extract_duration_and_reason(["Spamming", "2h"])
+    assert dur == 7200
+    assert reason == "Spamming"
+
+    dur, reason = extract_duration_and_reason(["Spamming"])
+    assert dur is None
+    assert reason == "Spamming"
+
+    dur, reason = extract_duration_and_reason([], default_reason="No reason")
+    assert dur is None
+    assert reason == "No reason"
+
+
+@pytest.mark.asyncio
+async def test_resolve_target_user_reply_and_tag():
+    mock_msg = MagicMock()
+    mock_msg.reply_to_message.from_user.id = 7777633189
+    mock_repo = AsyncMock()
+
+    # Admin replied to D's message and typed: /mute @tofindray 1m Spanning
+    args = ["@tofindray", "1m", "Spanning"]
+    target_id, remaining = await resolve_target_user(mock_msg, args, mock_repo)
+
+    assert target_id == 7777633189
+    assert remaining == ["1m", "Spanning"]
+
+    dur, reason = extract_duration_and_reason(remaining)
+    assert dur == 60
+    assert reason == "Spanning"
+
 
 
 @pytest.mark.asyncio

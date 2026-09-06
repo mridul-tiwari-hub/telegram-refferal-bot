@@ -30,6 +30,18 @@ async def resolve_target_user(
 
     if message.reply_to_message and message.reply_to_message.from_user:
         target_id = message.reply_to_message.from_user.id
+        # If user explicitly provided a target token (@username or numerical id) while replying,
+        # consume it from remaining_args so it does not get treated as duration or reason.
+        if remaining_args:
+            first = remaining_args[0]
+            if first.startswith("@"):
+                remaining_args.pop(0)
+            else:
+                try:
+                    int(first)
+                    remaining_args.pop(0)
+                except ValueError:
+                    pass
         return target_id, remaining_args
 
     if remaining_args:
@@ -48,6 +60,29 @@ async def resolve_target_user(
                 pass
 
     return target_id, remaining_args
+
+
+def extract_duration_and_reason(
+    remaining_args: list[str],
+    default_reason: str = "Action by administrator"
+) -> Tuple[Optional[int], str]:
+    """
+    Finds duration anywhere in arguments (e.g. '1m', '2h', '1d', '30s').
+    The remaining non-duration arguments are combined into the reason.
+    """
+    duration_seconds: Optional[int] = None
+    reason_tokens: list[str] = []
+
+    for token in remaining_args:
+        if duration_seconds is None:
+            dur = parse_duration_string(token)
+            if dur is not None:
+                duration_seconds = dur
+                continue
+        reason_tokens.append(token)
+
+    reason = " ".join(reason_tokens).strip() if reason_tokens else default_reason
+    return duration_seconds, reason
 
 
 @moderation_extra_router.message(Command("ban"))
@@ -81,17 +116,8 @@ async def handle_ban(message: Message, session: AsyncSession) -> None:
         await message.answer(f"❌ {reason}", parse_mode="HTML")
         return
 
-    # Parse optional duration and reason
-    duration_seconds: Optional[int] = None
-    ban_reason = "Banned by administrator"
-
-    if remaining:
-        parsed_dur = parse_duration_string(remaining[0])
-        if parsed_dur:
-            duration_seconds = parsed_dur
-            remaining.pop(0)
-        if remaining:
-            ban_reason = " ".join(remaining)
+    # Parse duration (e.g. 10m, 2h, 1d) and reason
+    duration_seconds, ban_reason = extract_duration_and_reason(remaining, default_reason="Banned by administrator")
 
     target_user = await user_repo.get_or_create_user(telegram_user_id=target_tg_id)
     actor_user = await user_repo.get_or_create_user(telegram_user_id=message.from_user.id)
@@ -173,16 +199,8 @@ async def handle_mute(message: Message, session: AsyncSession) -> None:
         await message.answer(f"❌ {reason}", parse_mode="HTML")
         return
 
-    duration_seconds: Optional[int] = None
-    mute_reason = "Muted by administrator"
-
-    if remaining:
-        parsed_dur = parse_duration_string(remaining[0])
-        if parsed_dur:
-            duration_seconds = parsed_dur
-            remaining.pop(0)
-        if remaining:
-            mute_reason = " ".join(remaining)
+    # Parse duration (e.g. 10m, 2h, 1d) and reason
+    duration_seconds, mute_reason = extract_duration_and_reason(remaining, default_reason="Muted by administrator")
 
     target_user = await user_repo.get_or_create_user(telegram_user_id=target_tg_id)
     actor_user = await user_repo.get_or_create_user(telegram_user_id=message.from_user.id)
