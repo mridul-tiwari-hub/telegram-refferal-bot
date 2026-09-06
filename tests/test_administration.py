@@ -6,6 +6,7 @@ from database.models.group import Group
 from database.models.user import User
 from database.repositories.admin_repo import AdminRepository
 from database.repositories.group_repo import GroupRepository
+from database.repositories.user_repo import UserRepository
 from services.permission_service import PermissionService, UserRole
 from services.advanced_moderation_service import parse_duration_string, AdvancedModerationService
 from services.content_filter_service import ContentFilterService
@@ -60,6 +61,105 @@ async def test_resolve_target_user_reply_and_tag():
     dur, reason = extract_duration_and_reason(remaining)
     assert dur == 60
     assert reason == "Spanning"
+
+
+@pytest.mark.asyncio
+async def test_user_role_and_rank_resolution(db_session):
+    admin_repo = AdminRepository(db_session)
+    group_repo = GroupRepository(db_session)
+    user_repo = UserRepository(db_session)
+
+    mock_bot = AsyncMock()
+
+    group = await group_repo.get_or_create_group(-100999, "Test Roles")
+    owner_user = await user_repo.get_or_create_user(telegram_user_id=1001, first_name="Owner")
+    admin_user = await user_repo.get_or_create_user(telegram_user_id=1002, first_name="Admin")
+    staff_user = await user_repo.get_or_create_user(telegram_user_id=1003, first_name="Staff")
+    member_user = await user_repo.get_or_create_user(telegram_user_id=1004, first_name="Member")
+
+    # Add staff_user as bot staff
+    await admin_repo.add_staff(group.id, staff_user.id, permissions="ban,mute,warn")
+
+    perm_service = PermissionService(db_session, mock_bot)
+
+    # 1. Owner mock
+    mock_owner_member = MagicMock()
+    from aiogram.enums import ChatMemberStatus
+    mock_owner_member.status = ChatMemberStatus.CREATOR
+    mock_bot.get_chat_member.return_value = mock_owner_member
+
+    role, name = await perm_service.get_user_role_and_rank(-100999, owner_user.telegram_user_id, group.id)
+    assert role == UserRole.OWNER
+    assert name == "Owner"
+
+    # 2. Administrator mock
+    mock_admin_member = MagicMock()
+    mock_admin_member.status = ChatMemberStatus.ADMINISTRATOR
+    mock_bot.get_chat_member.return_value = mock_admin_member
+
+    role, name = await perm_service.get_user_role_and_rank(-100999, admin_user.telegram_user_id, group.id)
+    assert role == UserRole.ADMIN
+    assert name == "Administrator"
+
+    # 3. Staff mock (Telegram member status is regular member, but configured as bot staff)
+    mock_staff_member = MagicMock()
+    mock_staff_member.status = ChatMemberStatus.MEMBER
+    mock_bot.get_chat_member.return_value = mock_staff_member
+
+    role, name = await perm_service.get_user_role_and_rank(-100999, staff_user.telegram_user_id, group.id)
+    assert role == UserRole.STAFF
+    assert name == "Staff"
+
+    # 4. Ordinary member
+    mock_bot.get_chat_member.return_value = mock_staff_member
+    role, name = await perm_service.get_user_role_and_rank(-100999, member_user.telegram_user_id, group.id)
+    assert role == UserRole.MEMBER
+    assert name == "Member"
+
+
+@pytest.mark.asyncio
+async def test_is_admin_filter_with_staff(db_session):
+    from bot.filters.admin_filter import IsAdminFilter
+    from aiogram.enums import ChatMemberStatus, ChatType
+
+    admin_repo = AdminRepository(db_session)
+    group_repo = GroupRepository(db_session)
+    user_repo = UserRepository(db_session)
+
+    group = await group_repo.get_or_create_group(-100888, "Filter Group")
+    staff_user = await user_repo.get_or_create_user(telegram_user_id=8801, first_name="StaffMember")
+    regular_user = await user_repo.get_or_create_user(telegram_user_id=8802, first_name="RegularMember")
+
+    await admin_repo.add_staff(group.id, staff_user.id, permissions="warn,rules")
+
+    filter_instance = IsAdminFilter()
+
+    # Mock message from staff
+    mock_staff_msg = AsyncMock()
+    mock_staff_msg.chat.type = ChatType.SUPERGROUP
+    mock_staff_msg.chat.id = -100888
+    mock_staff_msg.from_user.id = staff_user.telegram_user_id
+
+    # Telegram get_member returns regular MEMBER
+    tg_member = MagicMock()
+    tg_member.status = ChatMemberStatus.MEMBER
+    mock_staff_msg.chat.get_member.return_value = tg_member
+
+    # Staff passes filter because they are configured as bot staff in DB!
+    res_staff = await filter_instance(mock_staff_msg, session=db_session)
+    assert res_staff is True
+
+    # Regular user does not pass filter
+    mock_reg_msg = AsyncMock()
+    mock_reg_msg.chat.type = ChatType.SUPERGROUP
+    mock_reg_msg.chat.id = -100888
+    mock_reg_msg.from_user.id = regular_user.telegram_user_id
+    mock_reg_msg.chat.get_member.return_value = tg_member
+
+    res_reg = await filter_instance(mock_reg_msg, session=db_session)
+    assert res_reg is False
+
+
 
 
 

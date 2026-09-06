@@ -7,10 +7,12 @@ from aiogram.enums import ChatType
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.repositories.group_repo import GroupRepository
 from database.repositories.user_repo import UserRepository
+from database.repositories.admin_repo import AdminRepository
 from services.statistics_service import StatisticsService
 from services.referral_service import ReferralService
 from services.member_service import MemberService
 from services.invite_link_service import InviteLinkService
+from services.permission_service import PermissionService, UserRole
 from bot.keyboards.user_kb import get_tree_pagination_keyboard
 from bot.filters.admin_filter import IsAdminFilter
 
@@ -84,35 +86,78 @@ async def handle_referrals(message: Message, session: AsyncSession) -> None:
     await message.answer(text, reply_markup=markup, parse_mode="HTML")
 
 
-@commands_router.message(Command("userinfo"), IsAdminFilter())
-@commands_router.message(Command("member"), IsAdminFilter())
+@commands_router.message(Command("userinfo"))
+@commands_router.message(Command("profile"))
+@commands_router.message(Command("me"))
+@commands_router.message(Command("myinfo"))
+@commands_router.message(Command("whois"))
+@commands_router.message(Command("member"))
 async def handle_userinfo(message: Message, session: AsyncSession) -> None:
-    """Inspects detailed profile of a member."""
+    """Inspects detailed profile and role of a member or oneself."""
+    if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        await message.answer("Please use this command inside a group.")
+        return
+
+    group_repo = GroupRepository(session)
+    user_repo = UserRepository(session)
+    admin_repo = AdminRepository(session)
+    member_service = MemberService(session, message.bot)
+    perm_service = PermissionService(session, message.bot)
+
+    group = await group_repo.get_or_create_group(
+        telegram_group_id=message.chat.id,
+        group_name=message.chat.title or "Group"
+    )
+
     args = message.text.split()[1:]
     target_tg_id: Optional[int] = None
 
     if message.reply_to_message and message.reply_to_message.from_user:
         target_tg_id = message.reply_to_message.from_user.id
     elif args:
-        try:
-            target_tg_id = int(args[0])
-        except ValueError:
-            pass
+        first = args[0].strip()
+        if first.startswith("@"):
+            username = first.lstrip("@")
+            found_user = await user_repo.get_by_username(username)
+            if found_user:
+                target_tg_id = found_user.telegram_user_id
+            else:
+                await message.answer(f"❌ User @{username} not found in database. They must interact in the group first.")
+                return
+        else:
+            try:
+                target_tg_id = int(first)
+            except ValueError:
+                await message.answer("Usage: <code>/userinfo [@username | USER_ID]</code> or reply to a message, or simply <code>/userinfo</code> for your own profile.", parse_mode="HTML")
+                return
+    else:
+        # Defaults to the user running the command!
+        target_tg_id = message.from_user.id
 
-    if not target_tg_id:
-        await message.answer("Usage: <code>/userinfo &lt;USER_ID&gt;</code> or reply to a user's message.", parse_mode="HTML")
-        return
+    target_user = await user_repo.get_or_create_user(telegram_user_id=target_tg_id)
 
-    group_repo = GroupRepository(session)
-    user_repo = UserRepository(session)
-    member_service = MemberService(session, message.bot)
+    # Determine user role and rank in this group
+    role_enum, role_name = await perm_service.get_user_role_and_rank(
+        chat_id=message.chat.id,
+        user_id=target_tg_id,
+        group_db_id=group.id
+    )
 
-    group = await group_repo.get_by_telegram_id(message.chat.id)
-    target_user = await user_repo.get_by_telegram_id(target_tg_id)
+    role_icons = {
+        UserRole.OWNER: "👑 Owner",
+        UserRole.ADMIN: "🛡️ Administrator",
+        UserRole.STAFF: "⭐ Staff (Bot Moderator)",
+        UserRole.MEMBER: "👤 Member",
+        UserRole.RESTRICTED: "⛔ Restricted Member",
+        UserRole.BANNED: "🔨 Banned Member"
+    }
+    role_display = role_icons.get(role_enum, f"👤 {role_name}")
 
-    if not group or not target_user:
-        await message.answer("User or group record not found in database.")
-        return
+    staff_info = ""
+    if role_enum == UserRole.STAFF:
+        staff_rec = await admin_repo.get_staff(group.id, target_user.id)
+        if staff_rec:
+            staff_info = f"\n• Staff Permissions: <code>{staff_rec.permissions}</code>"
 
     profile = await member_service.get_member_profile(target_user.id, group.id)
     if not profile:
@@ -131,6 +176,7 @@ async def handle_userinfo(message: Message, session: AsyncSession) -> None:
         f"• Name: <b>{target_user.first_name} {target_user.last_name or ''}</b>\n"
         f"• Telegram ID: <code>{target_user.telegram_user_id}</code>\n"
         f"• Username: @{target_user.username or 'None'}\n"
+        f"• Role: <b>{role_display}</b>{staff_info}\n"
         f"• Referred By: <b>{ref_name}</b>\n"
         f"• Direct Referrals: <b>{profile['referrals_count']}</b>\n"
         f"• Warnings: <b>{profile['warnings_count']}</b>\n"
